@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 import chromadb
@@ -28,12 +29,53 @@ chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 handbook_collection  = chroma_client.get_collection("handbook")
 direction_collection = chroma_client.get_collection("direction")
 
-# ── HyDE — Hypothetical Document Embedding ─────────────────────────────────
+# ── model list with fallbacks ──────────────────────────────────────────────
+MODELS = [
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.5-flash',
+]
+
+def generate_with_fallback(prompt: str, temperature: float = 0.0,
+                           max_tokens: int = 1000) -> str:
+    """Try models in order, fall back if quota exhausted."""
+    for model_name in MODELS:
+        for attempt in range(2):
+            try:
+                response = gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        max_output_tokens=max_tokens
+                    )
+                )
+                return response.text.strip()
+            except Exception as e:
+                err = str(e)
+                if '429' in err:
+                    print(f"⚠️ {model_name} quota exhausted, trying next...")
+                    break  # try next model
+                elif '503' in err or '500' in err:
+                    if attempt == 0:
+                        print(f"⚠️ {model_name} unavailable, retrying in 5s...")
+                        time.sleep(5)
+                    else:
+                        print(f"⚠️ {model_name} still unavailable, trying next...")
+                        break
+                else:
+                    if attempt == 0:
+                        print(f"⚠️ Error ({model_name}): {e}, retrying...")
+                        time.sleep(3)
+                    else:
+                        raise e
+    raise Exception("All Gemini models exhausted. Please try again later.")
+
+# ── HyDE ───────────────────────────────────────────────────────────────────
 def generate_hypothetical_answer(question: str) -> str:
     """
-    HyDE: Ask Gemini to generate a fake ideal answer.
-    We embed THIS instead of the raw question.
-    This bridges the gap between question style and document style.
+    HyDE: Generate a hypothetical ideal answer to improve retrieval.
+    We embed this instead of the raw question.
     """
     prompt = f"""You are a GitLab expert. Write a short paragraph (3-4 sentences) 
 that would be the ideal answer to this question, as if it came directly 
@@ -43,33 +85,22 @@ Question: {question}
 
 Write only the answer paragraph, no preamble."""
 
-    response = gemini_client.models.generate_content(
-        model='gemini-2.5-flash-lite',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-            max_output_tokens=200
-        )
-    )
-    return response.text.strip()
+    return generate_with_fallback(prompt, temperature=0.1, max_tokens=200)
 
 # ── BM25 keyword search ────────────────────────────────────────────────────
 def bm25_search(query: str, collection, n_results: int = 5):
-    """
-    Simple keyword-based search using ChromaDB's where_document filter.
-    Poor man's BM25 — searches for key terms in documents.
-    """
-    # extract key words (remove common words)
-    stopwords = {'what','is','the','how','do','does','a','an','to','of','in',
-                 'and','or','for','with','are','was','were','be','been','have'}
+    """Keyword-based search — catches exact term matches."""
+    stopwords = {
+        'what','is','the','how','do','does','a','an','to','of','in',
+        'and','or','for','with','are','was','were','be','been','have',
+        'i','me','my','we','our','you','your','it','its','this','that'
+    }
     words = [w.lower() for w in query.split() if w.lower() not in stopwords]
-    
     if not words:
         return []
 
     results = []
-    # search for each keyword and collect results
-    for word in words[:3]:  # top 3 keywords only
+    for word in words[:3]:
         try:
             r = collection.query(
                 query_texts=[word],
@@ -83,10 +114,10 @@ def bm25_search(query: str, collection, n_results: int = 5):
                     r['distances'][0]
                 ):
                     results.append({
-                        "text": doc,
-                        "source": meta.get("source", ""),
-                        "url": meta.get("url", ""),
-                        "score": 1 - dist,
+                        "text":        doc,
+                        "source":      meta.get("source", ""),
+                        "url":         meta.get("url", ""),
+                        "score":       1 - dist,
                         "search_type": "keyword"
                     })
         except:
@@ -109,10 +140,10 @@ def vector_search(query_embedding, collection, n_results: int = 5):
             results['distances'][0]
         ):
             chunks.append({
-                "text": doc,
-                "source": meta.get("source", ""),
-                "url": meta.get("url", ""),
-                "score": 1 - dist,
+                "text":        doc,
+                "source":      meta.get("source", ""),
+                "url":         meta.get("url", ""),
+                "score":       1 - dist,
                 "search_type": "semantic"
             })
         return chunks
@@ -121,44 +152,62 @@ def vector_search(query_embedding, collection, n_results: int = 5):
         return []
 
 # ── hybrid search ──────────────────────────────────────────────────────────
-def hybrid_search(question: str, hyde_answer: str, collection, 
+def hybrid_search(question: str, hyde_answer: str, collection,
                   collection_name: str, n_results: int = 5):
-    """
-    Combine semantic (HyDE) + keyword (BM25) search.
-    Deduplicate and rank by combined score.
-    """
-    # embed the hypothetical answer (HyDE)
-    hyde_embedding = embedding_model.encode(hyde_answer).tolist()
-
-    # run both searches
+    """Combine semantic (HyDE) + keyword search, deduplicate and rank."""
+    hyde_embedding   = embedding_model.encode(hyde_answer).tolist()
     semantic_results = vector_search(hyde_embedding, collection, n_results)
     keyword_results  = bm25_search(question, collection, n_results)
 
-    # merge and deduplicate by text
     seen   = set()
     merged = []
     for chunk in semantic_results + keyword_results:
-        key = chunk["text"][:100]  # use first 100 chars as key
+        key = chunk["text"][:100]
         if key not in seen:
             seen.add(key)
             chunk["collection"] = collection_name
             merged.append(chunk)
 
-    # sort by score descending
     merged.sort(key=lambda x: x["score"], reverse=True)
     return merged[:n_results]
+
+# ── guardrail ──────────────────────────────────────────────────────────────
+IRRELEVANT_TOPICS = [
+    'recipe', 'cook', 'food', 'sport', 'football', 'cricket', 'movie',
+    'film', 'music', 'song', 'weather', 'stock', 'crypto', 'bitcoin',
+    'relationship', 'dating', 'love', 'game', 'minecraft', 'fortnite'
+]
+
+VAGUE_QUESTIONS = [
+    'tell me everything', 'everything', 'tell me all',
+    'what do you know', 'explain everything', 'all information'
+]
+
+def is_irrelevant(question: str) -> bool:
+    q = question.lower().strip()
+    if any(vague in q for vague in VAGUE_QUESTIONS):
+        return True
+    return any(topic in q for topic in IRRELEVANT_TOPICS)
 
 # ── main RAG function ──────────────────────────────────────────────────────
 def ask(question: str, chat_history: list = []) -> dict:
     """
     Main RAG pipeline:
-    1. HyDE — generate hypothetical answer
-    2. Hybrid search handbook + direction
-    3. Merge and rank results
+    1. Guardrail check
+    2. HyDE — generate hypothetical answer
+    3. Hybrid search handbook + direction
     4. Generate final answer with Gemini
     5. Return answer + sources
     """
     print(f"\n🤔 Question: {question}")
+
+    # guardrail
+    if is_irrelevant(question):
+        return {
+            "answer": "👋 I'm specifically designed to answer questions about GitLab's handbook, culture, processes, and product direction. I'm not able to help with that topic. Try asking me about GitLab's values, hiring process, remote work policy, or product strategy!",
+            "sources": [],
+            "hyde_answer": ""
+        }
 
     # step 1 — HyDE
     print("📝 Generating hypothetical answer (HyDE)...")
@@ -168,46 +217,54 @@ def ask(question: str, chat_history: list = []) -> dict:
     # step 2 — hybrid search both collections
     print("🔍 Searching handbook + direction...")
     handbook_chunks  = hybrid_search(
-        question, hyde_answer, handbook_collection,  "handbook",  n_results=5
+        question, hyde_answer, handbook_collection,  "handbook",  n_results=12
     )
     direction_chunks = hybrid_search(
-        question, hyde_answer, direction_collection, "direction", n_results=3
+        question, hyde_answer, direction_collection, "direction", n_results=4
     )
 
     # step 3 — merge all context
     all_chunks = handbook_chunks + direction_chunks
     if not all_chunks:
         return {
-            "answer": "I couldn't find relevant information for your question.",
+            "answer": "I couldn't find relevant information for your question. Try rephrasing or ask about a specific GitLab topic.",
             "sources": [],
             "hyde_answer": hyde_answer
         }
 
-    # step 4 — build context string for Gemini
+    # step 4 — build context string
     context_parts = []
     for i, chunk in enumerate(all_chunks):
         source_label = "📘 Handbook" if chunk["collection"] == "handbook" else "🗺️ Direction"
-        context_parts.append(
-            f"[Source {i+1} — {source_label}]\n{chunk['text']}\n"
-        )
+        context_parts.append(f"[Source {i+1} — {source_label}]\n{chunk['text']}\n")
     context = "\n---\n".join(context_parts)
 
-    # step 5 — build chat history string
+    # step 5 — chat history
     history_str = ""
     if chat_history:
         history_str = "\n".join([
             f"User: {h['user']}\nAssistant: {h['assistant']}"
-            for h in chat_history[-3:]  # last 3 turns only
+            for h in chat_history[-3:]
         ])
 
     # step 6 — final prompt
-    prompt = f"""You are a helpful GitLab assistant that helps employees and 
-aspiring employees understand GitLab's handbook and product direction.
+    prompt = f"""You are an expert GitLab assistant helping employees and aspiring 
+employees navigate GitLab's handbook and product direction.
 
-Use ONLY the context below to answer the question. 
-If the context doesn't contain enough information, say so honestly.
-Always mention whether information comes from the Handbook or Direction pages.
-Be concise, clear and helpful.
+INSTRUCTIONS:
+- Answer thoroughly using the context provided below
+- Extract actual text from markdown links like [text](/url) — use the text, ignore URLs
+- Synthesize information from ALL sources provided, don't just look at one
+- Structure answers clearly with bullet points when listing multiple items
+- Always mention whether info comes from Handbook or Direction pages
+- If question is completely unrelated to GitLab, politely decline and redirect
+- Never invent information not present in context
+- If context has partial info, give best answer and note what may be missing
+- Use markdown tables when comparing multiple items side by side
+- Use bullet points for lists of 3+ items
+- Use headers (##) for multi-part answers
+
+TONE: Professional, friendly — like a knowledgeable GitLab teammate
 
 {f'Previous conversation:{chr(10)}{history_str}{chr(10)}' if history_str else ''}
 
@@ -219,35 +276,26 @@ Question: {question}
 Answer:"""
 
     print("💬 Generating answer with Gemini...")
-    response = gemini_client.models.generate_content(
-        model='gemini-2.5-flash-lite',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.2,
-            max_output_tokens=1000
-        )
-    )
+    answer = generate_with_fallback(prompt, temperature=0.0, max_tokens=1000)
 
-    answer = response.text.strip()
-
-    # step 7 — build sources list
-    sources = []
-    seen_sources = set()
+    # step 7 — build sources
+    sources    = []
+    seen_srcs  = set()
     for chunk in all_chunks:
         src = chunk["source"]
-        if src not in seen_sources:
-            seen_sources.add(src)
+        if src not in seen_srcs:
+            seen_srcs.add(src)
             sources.append({
-                "source": src,
-                "url": chunk["url"],
+                "source":     src,
+                "url":        chunk["url"],
                 "collection": chunk["collection"],
-                "score": round(chunk["score"], 3)
+                "score":      round(chunk["score"], 3)
             })
 
     print(f"✅ Answer ready! ({len(sources)} sources)")
     return {
-        "answer": answer,
-        "sources": sources,
+        "answer":      answer,
+        "sources":     sources,
         "hyde_answer": hyde_answer
     }
 
