@@ -1,6 +1,6 @@
 streamlit
 google-genai
-chromadb==0.5.23
+chromadb==0.4.24
 beautifulsoup4
 requests
 python-dotenv
@@ -8,5 +8,5 @@ tiktoken
 gitpython
 tqdm
 sentence-transformers
-huggingface_hub
-numpy==1.26.4
+torch
+torchvision
