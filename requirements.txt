@@ -1,7 +1,7 @@
 streamlit
 google-genai
-chromadb==0.4.24
-numpy==1.26.4
+chromadb==0.5.23
+numpy<2.0
 beautifulsoup4
 requests
 python-dotenv
@@ -11,3 +11,4 @@ tqdm
 sentence-transformers
 torch
 torchvision
+protobuf==4.25.3
