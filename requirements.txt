@@ -1,5 +1,5 @@
 streamlit
-google-generativeai
+google-genai
 chromadb
 beautifulsoup4
 requests
@@ -7,3 +7,5 @@ python-dotenv
 tiktoken
 gitpython
 tqdm
+sentence-transformers
+huggingface_hub

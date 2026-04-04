@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 import chromadb
@@ -10,6 +11,12 @@ from google.genai import types
 
 load_dotenv()
 ROOT = Path(__file__).parent.parent
+
+# ── simple cache ───────────────────────────────────────────────────────────
+_cache = {}
+
+def _cache_key(question: str) -> str:
+    return hashlib.md5(question.lower().strip().encode()).hexdigest()
 
 # ── clients ────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -31,7 +38,7 @@ direction_collection = chroma_client.get_collection("direction")
 
 # ── model list with fallbacks ──────────────────────────────────────────────
 MODELS = [
-    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash-lite',
     'gemini-2.0-flash',
     'gemini-2.5-flash',
 ]
@@ -55,7 +62,8 @@ def generate_with_fallback(prompt: str, temperature: float = 0.0,
                 err = str(e)
                 if '429' in err:
                     print(f"⚠️ {model_name} quota exhausted, trying next...")
-                    break  # try next model
+                    time.sleep(2)
+                    break
                 elif '503' in err or '500' in err:
                     if attempt == 0:
                         print(f"⚠️ {model_name} unavailable, retrying in 5s...")
@@ -70,6 +78,31 @@ def generate_with_fallback(prompt: str, temperature: float = 0.0,
                     else:
                         raise e
     raise Exception("All Gemini models exhausted. Please try again later.")
+
+# ── query expansion (no API calls) ────────────────────────────────────────
+EXPANSIONS = {
+    'remote work':    'all-remote',
+    'work from home': 'all-remote',
+    'wfh':            'all-remote',
+    'vacation':       'PTO paid time off',
+    'time off':       'PTO paid time off',
+    'salary':         'compensation',
+    'pay':            'compensation',
+    'interview':      'hiring process',
+    '3 year':         'three year strategy',
+    'three year':     'strategy direction',
+    'mental health':  'wellbeing mental health',
+    'sick':           'sick leave PTO',
+    'benefits':       'compensation benefits',
+}
+
+def rewrite_query(question: str) -> str:
+    """Expand query with GitLab-specific terms — no API call."""
+    q = question.lower()
+    for term, expansion in EXPANSIONS.items():
+        if term in q:
+            return question + " " + expansion
+    return question
 
 # ── HyDE ───────────────────────────────────────────────────────────────────
 def generate_hypothetical_answer(question: str) -> str:
@@ -194,10 +227,12 @@ def ask(question: str, chat_history: list = []) -> dict:
     """
     Main RAG pipeline:
     1. Guardrail check
-    2. HyDE — generate hypothetical answer
-    3. Hybrid search handbook + direction
-    4. Generate final answer with Gemini
-    5. Return answer + sources
+    2. Cache check
+    3. Query expansion — GitLab-specific terms
+    4. HyDE — generate hypothetical answer
+    5. Hybrid search handbook + direction
+    6. Generate final answer with Gemini
+    7. Return answer + sources
     """
     print(f"\n🤔 Question: {question}")
 
@@ -209,21 +244,32 @@ def ask(question: str, chat_history: list = []) -> dict:
             "hyde_answer": ""
         }
 
-    # step 1 — HyDE
+    # cache check
+    ck = _cache_key(question)
+    if ck in _cache:
+        print("⚡ Cache hit!")
+        return _cache[ck]
+
+    # step 1 — expand query
+    print("🔄 Expanding query...")
+    rewritten = rewrite_query(question)
+    print(f"   Expanded: {rewritten}")
+
+    # step 2 — HyDE
     print("📝 Generating hypothetical answer (HyDE)...")
-    hyde_answer = generate_hypothetical_answer(question)
+    hyde_answer = generate_hypothetical_answer(rewritten)
     print(f"   HyDE: {hyde_answer[:80]}...")
 
-    # step 2 — hybrid search both collections
+    # step 3 — hybrid search both collections
     print("🔍 Searching handbook + direction...")
     handbook_chunks  = hybrid_search(
-        question, hyde_answer, handbook_collection,  "handbook",  n_results=12
+        rewritten, hyde_answer, handbook_collection,  "handbook",  n_results=12
     )
     direction_chunks = hybrid_search(
-        question, hyde_answer, direction_collection, "direction", n_results=4
+        rewritten, hyde_answer, direction_collection, "direction", n_results=4
     )
 
-    # step 3 — merge all context
+    # step 4 — merge all context
     all_chunks = handbook_chunks + direction_chunks
     if not all_chunks:
         return {
@@ -232,14 +278,14 @@ def ask(question: str, chat_history: list = []) -> dict:
             "hyde_answer": hyde_answer
         }
 
-    # step 4 — build context string
+    # step 5 — build context string
     context_parts = []
     for i, chunk in enumerate(all_chunks):
         source_label = "📘 Handbook" if chunk["collection"] == "handbook" else "🗺️ Direction"
         context_parts.append(f"[Source {i+1} — {source_label}]\n{chunk['text']}\n")
     context = "\n---\n".join(context_parts)
 
-    # step 5 — chat history
+    # step 6 — chat history
     history_str = ""
     if chat_history:
         history_str = "\n".join([
@@ -247,7 +293,7 @@ def ask(question: str, chat_history: list = []) -> dict:
             for h in chat_history[-3:]
         ])
 
-    # step 6 — final prompt
+    # step 7 — final prompt
     prompt = f"""You are an expert GitLab assistant helping employees and aspiring 
 employees navigate GitLab's handbook and product direction.
 
@@ -278,9 +324,9 @@ Answer:"""
     print("💬 Generating answer with Gemini...")
     answer = generate_with_fallback(prompt, temperature=0.0, max_tokens=1000)
 
-    # step 7 — build sources
-    sources    = []
-    seen_srcs  = set()
+    # step 8 — build sources
+    sources   = []
+    seen_srcs = set()
     for chunk in all_chunks:
         src = chunk["source"]
         if src not in seen_srcs:
@@ -293,11 +339,14 @@ Answer:"""
             })
 
     print(f"✅ Answer ready! ({len(sources)} sources)")
-    return {
+
+    result = {
         "answer":      answer,
         "sources":     sources,
         "hyde_answer": hyde_answer
     }
+    _cache[ck] = result
+    return result
 
 # ── quick test ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
