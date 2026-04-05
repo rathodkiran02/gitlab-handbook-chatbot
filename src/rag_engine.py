@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 import chromadb
@@ -222,7 +221,6 @@ def ask(question: str, chat_history: list = []) -> dict:
     """
     Main RAG pipeline:
     1. Guardrail check
-    2. Cache check
     3. Query expansion — GitLab-specific terms
     4. HyDE — generate hypothetical answer
     5. Hybrid search handbook + direction
@@ -239,11 +237,7 @@ def ask(question: str, chat_history: list = []) -> dict:
             "hyde_answer": ""
         }
 
-    # cache check
-    ck = _cache_key(question)
-    if ck in _cache:
-        print("⚡ Cache hit!")
-        return _cache[ck]
+    
 
     # step 1 — expand query
     print("🔄 Expanding query...")
@@ -265,8 +259,8 @@ def ask(question: str, chat_history: list = []) -> dict:
     )
 
     # filter low quality chunks
-    handbook_chunks  = [c for c in handbook_chunks  if c["score"] > 0.3]
-    direction_chunks = [c for c in direction_chunks if c["score"] > 0.3]
+    handbook_chunks  = [c for c in handbook_chunks  if c["score"] > 0.1]
+    direction_chunks = [c for c in direction_chunks if c["score"] > 0.1]
 
     # step 4 — merge all context
     all_chunks = handbook_chunks + direction_chunks
@@ -318,7 +312,7 @@ Question: {question}
 Answer:"""
 
     print("💬 Generating answer with Gemini...")
-    answer = generate_with_fallback(prompt, temperature=0.0, max_tokens=1000)
+    answer = generate_with_fallback(prompt, temperature=0.0, max_tokens=2000)
 
     # step 8 — build sources
     sources   = []
@@ -341,7 +335,7 @@ Answer:"""
         "sources":     sources,
         "hyde_answer": hyde_answer
     }
-    _cache[ck] = result
+    
     return result
 
 # ── quick test ─────────────────────────────────────────────────────────────
