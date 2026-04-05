@@ -12,11 +12,6 @@ from google.genai import types
 load_dotenv()
 ROOT = Path(__file__).parent.parent
 
-# ── simple cache ───────────────────────────────────────────────────────────
-_cache = {}
-
-def _cache_key(question: str) -> str:
-    return hashlib.md5(question.lower().strip().encode()).hexdigest()
 
 # ── clients ────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -260,14 +255,18 @@ def ask(question: str, chat_history: list = []) -> dict:
     hyde_answer = generate_hypothetical_answer(rewritten)
     print(f"   HyDE: {hyde_answer[:80]}...")
 
-    # step 3 — hybrid search both collections
+    # step 2 — hybrid search both collections
     print("🔍 Searching handbook + direction...")
     handbook_chunks  = hybrid_search(
-        rewritten, hyde_answer, handbook_collection,  "handbook",  n_results=12
+        question, hyde_answer, handbook_collection,  "handbook",  n_results=15
     )
     direction_chunks = hybrid_search(
-        rewritten, hyde_answer, direction_collection, "direction", n_results=4
+        question, hyde_answer, direction_collection, "direction", n_results=5
     )
+
+    # filter low quality chunks
+    handbook_chunks  = [c for c in handbook_chunks  if c["score"] > 0.3]
+    direction_chunks = [c for c in direction_chunks if c["score"] > 0.3]
 
     # step 4 — merge all context
     all_chunks = handbook_chunks + direction_chunks
@@ -285,34 +284,31 @@ def ask(question: str, chat_history: list = []) -> dict:
         context_parts.append(f"[Source {i+1} — {source_label}]\n{chunk['text']}\n")
     context = "\n---\n".join(context_parts)
 
-    # step 6 — chat history
+    # step 5 — chat history
     history_str = ""
     if chat_history:
+        recent = chat_history[-4:]  # keep last 4 turns
         history_str = "\n".join([
-            f"User: {h['user']}\nAssistant: {h['assistant']}"
-            for h in chat_history[-3:]
+            f"Human: {h['user']}\nAssistant: {h['assistant'][:300]}..."
+            for h in recent
         ])
 
     # step 7 — final prompt
-    prompt = f"""You are an expert GitLab assistant helping employees and aspiring 
-employees navigate GitLab's handbook and product direction.
+    prompt = f"""You are GitLab Assistant — a knowledgeable, friendly expert on GitLab.
 
-INSTRUCTIONS:
-- Answer thoroughly using the context provided below
-- Extract actual text from markdown links like [text](/url) — use the text, ignore URLs
-- Synthesize information from ALL sources provided, don't just look at one
-- Structure answers clearly with bullet points when listing multiple items
-- Always mention whether info comes from Handbook or Direction pages
-- If question is completely unrelated to GitLab, politely decline and redirect
-- Never invent information not present in context
-- If context has partial info, give best answer and note what may be missing
-- Use markdown tables when comparing multiple items side by side
-- Use bullet points for lists of 3+ items
-- Use headers (##) for multi-part answers
+Answer the question directly and helpfully using the context provided.
 
-TONE: Professional, friendly — like a knowledgeable GitLab teammate
+RULES:
+- Give direct, clean answers — no disclaimers like "the context says" or "based on provided context"
+- Never say "I cannot find this in the context" — if info is partial, give what you have naturally
+- Don't mention "Handbook" or "Direction pages" in every sentence — just answer naturally
+- Use bullet points and structure for complex answers
+- For follow-up questions, use the conversation history to maintain context
+- If truly no relevant info exists, say: "I don't have specific details on that — try checking handbook.gitlab.com directly"
+- Use markdown tables when comparing things
+- Never make up facts
 
-{f'Previous conversation:{chr(10)}{history_str}{chr(10)}' if history_str else ''}
+{f'Conversation so far:{chr(10)}{history_str}{chr(10)}' if history_str else ''}
 
 Context:
 {context}
