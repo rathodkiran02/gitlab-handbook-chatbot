@@ -255,15 +255,22 @@ def ask(question: str, chat_history: list = []) -> dict:
         question, hyde_answer, handbook_collection,  "handbook",  n_results=15
     )
     direction_chunks = hybrid_search(
-        question, hyde_answer, direction_collection, "direction", n_results=5
+        question, hyde_answer, direction_collection, "direction", n_results=8
     )
 
     # filter low quality chunks
-    handbook_chunks  = [c for c in handbook_chunks  if c["score"] > 0.1]
-    direction_chunks = [c for c in direction_chunks if c["score"] > 0.1]
+    handbook_chunks  = [c for c in handbook_chunks  if c["score"] > 0.05]
+    direction_chunks = direction_chunks
+
+    # debug — print what we found
+    print(f"\n📊 Found {len(handbook_chunks)} handbook + {len(direction_chunks)} direction chunks")
+    for i, c in enumerate(handbook_chunks[:3]):
+        print(f"  Chunk {i+1} | score:{c['score']:.3f} | {c['source']}")
+        print(f"  Preview: {c['text'][:150]}")
+        print()
 
     # step 4 — merge all context
-    all_chunks = handbook_chunks + direction_chunks
+    all_chunks = direction_chunks + handbook_chunks
     if not all_chunks:
         return {
             "answer": "I couldn't find relevant information for your question. Try rephrasing or ask about a specific GitLab topic.",

@@ -41,8 +41,13 @@ def load_direction_chunks():
 def embed_and_store(chunks, collection, label, batch_size=100):
     print(f"\n📦 Embedding {len(chunks)} {label} chunks...")
 
-    existing = set(collection.get()["ids"])
-    chunks = [c for c in chunks if c["chunk_id"] not in existing]
+    try:
+        count = collection.count()
+        if count > 0:
+            print(f"   ✅ Already have {count} chunks, skipping!")
+            return
+    except:
+        pass
     print(f"   ⏭️  {len(chunks)} new chunks to embed")
 
     if not chunks:

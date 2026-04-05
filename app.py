@@ -46,9 +46,9 @@ SUGGESTIONS = [
     "What are GitLab's core values?",
     "How does GitLab handle remote work?",
     "What is GitLab's hiring process?",
-    "What is GitLab's 3 year strategy?",
     "How do I request time off at GitLab?",
-    "What AI features is GitLab planning?",
+    "How does GitLab approach diversity?",
+    "What is GitLab's onboarding process?",
 ]
 
 THEMES = {
@@ -407,10 +407,7 @@ for msg in st.session_state.messages:
                     icon  = "📘" if s["collection"] == "handbook" else "🗺️"
                     label = "Handbook" if s["collection"] == "handbook" else "Direction"
                     url   = s.get("url","")
-                    if url:
-                        st.markdown(f"{icon} **{label}** — [{s['source']}]({url}) `{s.get('score',0)}`")
-                    else:
-                        st.markdown(f"{icon} **{label}** — {s['source']} `{s.get('score',0)}`")
+                    st.markdown(f"{icon} **{label}** — {s['source']} `{s.get('score',0)}`")
 
 # ── LOADING BUBBLE ────────────────────────────────────────────────────────────
 if st.session_state.is_loading:
