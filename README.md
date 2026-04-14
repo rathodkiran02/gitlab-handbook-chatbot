@@ -1,108 +1,190 @@
-# 🦊 GitLab Handbook Assistant
+# 🤖 GitLab Handbook Assistant
 
-An AI-powered chatbot that helps employees and aspiring employees easily access information from GitLab's Handbook and Direction pages — built with **Hybrid RAG + HyDE retrieval**.
+An AI-powered chatbot that helps employees and aspiring candidates easily access insights from GitLab’s **Handbook** and **Direction pages** using an advanced **Hybrid RAG + HyDE pipeline**.
+
+---
 
 ## 🌐 Live Demo
-🔗 [https://gl-assistant-bot.streamlit.app/](https://gl-assistant-bot.streamlit.app/)
+
+🔗 https://gl-assistant-bot.streamlit.app/
+
+---
 
 ## 👤 Author
+
 **R Kiran Kumar**
-GitHub: [https://github.com/rathodkiran02](https://github.com/rathodkiran02)
+GitHub: https://github.com/rathodkiran02
 
 ---
 
 ## 🧠 How It Works
 
-This chatbot utilizes an **Advanced Hybrid RAG** (Retrieval-Augmented Generation) pipeline to ensure high accuracy and context-aware responses:
+This project implements an **Advanced Retrieval-Augmented Generation (RAG)** system designed for high accuracy and minimal hallucination.
 
-1.  **Query Expansion**: Automatically enriches the user's question with GitLab-specific terminology.
-2.  **HyDE (Hypothetical Document Embeddings)**: Gemini generates a "hypothetical" ideal answer to bridge the gap between user questions and technical documentation.
-3.  **Hybrid Search**: Combines semantic vector search (via ChromaDB) with keyword matching across **75,000+ chunks**.
-4.  **Dual Collection Retrieval**: Searches the Handbook and Direction pages separately to ensure strategic and operational data are both considered.
-5.  **Grounded Generation**: Gemini 2.0 Flash synthesizes the final answer, strictly using the retrieved context with source citations.
+### 🔍 Core Pipeline
+
+* **Query Expansion**
+  Enhances user queries with GitLab-specific terminology.
+
+* **HyDE (Hypothetical Document Embeddings)**
+  Generates a hypothetical ideal answer using Gemini to improve retrieval relevance.
+
+* **Hybrid Search**
+  Combines:
+
+  * Semantic Search (ChromaDB)
+  * Keyword Matching
+
+* **Dual Collection Retrieval**
+  Retrieves from:
+
+  * GitLab Handbook (operational data)
+  * GitLab Direction pages (strategic data)
+
+* **Grounded Generation**
+  Final response is generated using **Gemini 2.0 Flash**, strictly based on retrieved context with citations.
 
 ---
 
 ## ✨ Features
 
-- 💬 **Natural Conversation**: Supports multi-turn dialogue and remembers context.
-- 📚 **Massive Knowledge Base**: Indexed GitLab's entire public handbook and direction site.
-- 🔍 **Hybrid RAG & HyDE**: Advanced retrieval techniques to minimize hallucinations.
-- 📖 **Source Citations**: Every answer includes links/references to the original GitLab pages.
-- 🎨 **UI Customization**: Includes Light, Dark, and Blue themes via Streamlit.
-- 🛡️ **Smart Guardrails**: Gracefully handles off-topic queries and provides "GitLab Facts" during loading.
-- ⚡ **Model Fallback**: Automated switching between Gemini models to manage API quotas.
+* 💬 **Conversational AI** – Supports multi-turn conversations with memory
+* 📚 **Massive Knowledge Base** – 75,000+ indexed document chunks
+* 🔍 **Hybrid RAG + HyDE** – Reduces hallucinations significantly
+* 📖 **Source Citations** – Every response is grounded with references
+* 🎨 **Custom UI Themes** – Light, Dark, Blue (Streamlit)
+* 🛡️ **Smart Guardrails** – Handles irrelevant queries gracefully
+* ⚡ **Model Fallback System** – Automatically switches Gemini models when quota limits are reached
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Component | Technology |
-|---|---|
-| **Frontend** | Streamlit |
-| **LLM** | Google Gemini 2.0 Flash |
-| **Embeddings** | `sentence-transformers` (all-MiniLM-L6-v2) |
-| **Vector Store** | ChromaDB |
-| **Data Ingestion** | Git (Handbook) & BeautifulSoup (Direction Scraping) |
+| Component      | Technology                                |
+| -------------- | ----------------------------------------- |
+| Frontend       | Streamlit                                 |
+| LLM            | Gemini 2.0 Flash                          |
+| Embeddings     | sentence-transformers (all-MiniLM-L6-v2)  |
+| Vector Store   | ChromaDB                                  |
+| Data Ingestion | Git (Handbook) + BeautifulSoup (Scraping) |
 
 ---
 
 ## 🗂️ Project Structure
 
-```text
+```bash
 gitlab-handbook-chatbot/
-├── app.py                        # Main Streamlit UI
+├── app.py                        # Streamlit UI
 ├── src/
-│   ├── rag_engine.py             # RAG pipeline (HyDE + Hybrid search)
-│   ├── ingest_handbook.py        # Clone + smart chunk GitLab handbook
-│   ├── ingest_direction.py       # Scrape + chunk direction pages
-│   ├── build_vectorstore.py      # Build ChromaDB vector store
-│   ├── clear_db.py               # Database maintenance
-│   └── debug_search.py           # Retrieval quality testing
-├── data/                         # Local storage for cloned/scraped content
-├── chroma_db/                    # Persistent vector storage
-├── requirements.txt              # Dependencies
-└── .env                          # API keys
-🚀 Setup & Run Locally
+│   ├── rag_engine.py             # Core RAG pipeline
+│   ├── ingest_handbook.py        # Handbook ingestion
+│   ├── ingest_direction.py       # Direction pages scraping
+│   ├── build_vectorstore.py      # Build vector DB
+│   ├── clear_db.py               # Reset database
+│   └── debug_search.py           # Debug retrieval
+├── data/                         # Raw data storage
+├── chroma_db/                    # Vector database
+├── requirements.txt
+└── .env
+```
 
-Prerequisites
+---
 
-Python 3.10+
+## 🚀 Setup & Run Locally
 
-Gemini API key from AI Studio
+### ✅ Prerequisites
 
-1. Clone & Install
-Bash
-git clone [https://github.com/rathodkiran02/gitlab-handbook-chatbot](https://github.com/rathodkiran02/gitlab-handbook-chatbot)
+* Python 3.10+
+* Gemini API key (Google AI Studio)
+
+---
+
+### 1️⃣ Clone Repository
+
+```bash
+git clone https://github.com/rathodkiran02/gitlab-handbook-chatbot
 cd gitlab-handbook-chatbot
+```
+
+---
+
+### 2️⃣ Create Virtual Environment
+
+```bash
 python -m venv venv
-source venv/bin/activate  # venv\Scripts\activate on Windows
+source venv/bin/activate        # Windows: venv\Scripts\activate
+```
 
+---
+
+### 3️⃣ Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-2. Environment Setup
+---
 
-Create a .env file in the root directory:
+### 4️⃣ Environment Setup
 
-Code snippet
+Create a `.env` file:
 
+```env
 GEMINI_API_KEY=your_gemini_api_key_here
+```
 
-3. Build Data Pipeline
+---
 
-Run the ingestion script (Note: First run takes ~20 mins due to the size of the GitLab Handbook).
+### 5️⃣ Build Vector Database
 
-Bash
+```bash
 python src/build_vectorstore.py
+```
 
-4. Launch App
+⚠️ First run may take ~20 minutes due to large dataset ingestion.
 
-Bash
+---
+
+### 6️⃣ Run Application
+
+```bash
 streamlit run app.py
+```
 
-🎯 Example Questions
-"What are GitLab's core CREDIT values?"
+---
 
-"How does GitLab handle 'unlimited' PTO?"
+## 🎯 Example Queries
 
-"How do I prepare for a technical interview at GitLab?"
+* "What are GitLab’s CREDIT values?"
+* "How does GitLab handle unlimited PTO?"
+* "How should I prepare for a GitLab technical interview?"
+
+---
+
+## 📊 Key Highlights
+
+* Handles **large-scale documentation (75K+ chunks)** efficiently
+* Uses **HyDE + Hybrid Retrieval** for better semantic matching
+* Reduces hallucinations via **strict grounded generation**
+* Designed for **real-world enterprise knowledge systems**
+
+---
+
+## 🚀 Future Improvements
+
+* Add **user authentication & personalization**
+* Implement **feedback-based learning loop**
+* Integrate **LangGraph / Agents for complex workflows**
+* Improve **ranking using rerankers (e.g., cross-encoders)**
+
+---
+
+## 📜 License
+
+This project is for educational and research purposes.
+
+---
+
+## ⭐ If you like this project
+
+Give it a ⭐ on GitHub and share your feedback!
