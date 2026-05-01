@@ -9,6 +9,9 @@ An AI-powered chatbot that helps employees and aspiring candidates easily access
 🔗 https://gl-assistant-bot.streamlit.app/
 
 ---
+## Full Documentation
+
+🔗 https://docs.google.com/document/d/1yLB6fC8y-C2wpUjhV9yU5yQxAOcxAt6PF2gujLvixtM/edit?tab=t.0#heading=h.yxcu26ww8h9u
 
 ## 👤 Author
 
